@@ -53,3 +53,8 @@ public class providerController {
 	
 	
 }
+
+
+Deploy
+[10:54, 5/8/2020] JOSE: https://github.com/microservices-demo
+[11:00, 5/8/2020] JOSE: https://github.com/microservices-demo/microservices-demo/tree/master/deploy/kubernetes/manifests
