@@ -1,93 +1,55 @@
-use everisdata
+package spring.webflux.provider.Controller;
 
-db.parents.insert([
-{
-"name": "Romero",
-"lastName": "Mesaín",
-"gender": "M",
-"date": ISODate("2000-01-02"),
-"typeDocument": "Dni",
-"document": 14232141
-},
-{
-"name": "Nestor",
-"lastName": "Fashh",
-"gender": "M",
-"date": ISODate("2001-02-03"),
-"typeDocument": "Dni",
-"document": 78412415
-},
-{
-"name": "Zoe",
-"lastName": "Boggio",
-"gender": "F",
-"date": ISODate("2002-03-04"),
-"typeDocument": "Dni",
-"document": 24153254
-},
-{
-"name": "José",
-"lastName": "Rodriguez",
-"gender": "M",
-"date": ISODate("2003-04-05"),
-"typeDocument": "Dni",
-"document": 35264511
-},
-{
-"name": "Eyleen",
-"lastName": "Barboza",
-"gender": "M",
-"date": ISODate("2004-03-06"),
-"typeDocument": "Dni",
-"document": 89875522
-},
-{
-"name": "julio",
-"lastName": "Zenn",
-"gender": "M",
-"date": ISODate("2005-05-07"),
-"typeDocument": "Dni",
-"document": 98567855
-},
-{
-"name": "Niurca",
-"lastName": "Sanchéz",
-"gender": "F",
-"date": ISODate("2006-09-08"),
-"typeDocument": "Dni",
-"document": 96859786
+import java.util.Arrays;
+import java.util.List;
+import java.util.stream.Collectors;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.client.RestTemplate;
+
+@RestController
+public class providerController {
+
+	
+	@Autowired
+	private RestTemplate restTemplate;
+	
+	
+	@GetMapping("/listar")
+	public List<Object> getProductos(){
+		String url = "http://localhost:9090/products";
+		Object[] objects = restTemplate.getForObject(url, Object[].class);
+		
+			return Arrays.asList(objects).stream().map( p -> {
+			
+			String url2 = "http://localhost:9090/products";
+			Object[] objects2 = restTemplate.getForObject(url2, Object[].class);
+			
+			return Arrays.asList(objects2).stream().map(a -> {
+				
+			String url3 = "http://localhost:9090/products";
+			Object[] objects3 = restTemplate.getForObject(url3, Object[].class);
+				
+			return Arrays.asList(objects3).stream().map(q -> {
+				
+			String url4 = "http://localhost:9090/products";
+			Object[] objects4 = restTemplate.getForObject(url4, Object[].class);
+			
+			return Arrays.asList(objects4);
+				
+			
+			}).collect(Collectors.toList());
+					
+				
+			}).collect(Collectors.toList());
+			
+			
+		}).collect(Collectors.toList());
+	}
+	
+	
+	
+	
 }
-,
-{
-"name": "Dorita",
-"lastName": "Flux",
-"gender": "F",
-"date": ISODate("2007-05-09"),
-"typeDocument": "Dni",
-"document": 89658999
-},
-{
-"name": "Vero",
-"lastName": "Neto",
-"gender": "F",
-"date": ISODate("2008-04-10"),
-"typeDocument": "Dni",
-"document": 98636589
-}
-,
-{
-"name": "Melany",
-"lastName": "Juay",
-"gender": "M",
-"date": ISODate("2009-09-11"),
-"typeDocument": "Dni",
-"document": 96859876
-},
-{
-"name": "Elenita",
-"lastName": "Sou",
-"gender": "F",
-"date": ISODate("2010-04-12"),
-"typeDocument": "Dni",
-"document": 74857854
-}])
