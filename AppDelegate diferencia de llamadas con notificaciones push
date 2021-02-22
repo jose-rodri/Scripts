@@ -1,0 +1,476 @@
+//
+//  AppDelegate.swift
+//  ehCOSRemoteHealth
+//
+//  Created by Jorge Enrique Ventura Gonzales on 10/1/20.
+//  Copyright © 2020 Jorge Enrique Ventura Gonzales. All rights reserved.
+//
+
+import UIKit
+import Firebase
+import FirebaseCore
+import FirebaseInstanceID
+import FirebaseMessaging
+import FrameworkEhCOS
+import SafariServices
+
+@UIApplicationMain
+class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterDelegate, MessagingDelegate {
+
+    var window: UIWindow?
+    
+    func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
+        // Override point for customization after application launch.
+     
+        RemoteLib.shared.setConfig(LibConfig(
+            entitySelected: true,
+            homeEnable: false,
+            colorPrimary: "#1976B3",
+            colorSecundary: "#83B6D5",
+            disableBack: false)
+        )
+        
+        RemoteLib.shared.setVersionUpdate(false)
+        
+      
+        
+        NotificationCenter.default.addObserver(self, selector: #selector(setOpenViewController(notification:)), name: Notification.Name("open"), object: nil)
+        
+        
+        let validate =  RemoteLib.shared.settingsManager.validateSession
+       
+       registerForPushNotifications()
+        
+        if validate == true {
+            let login = LoginRouter.createModule()
+            login.modalPresentationStyle = .fullScreen
+            self.window?.rootViewController = login
+            self.window?.makeKeyAndVisible()
+        }
+        
+        NotificationCenter.default.addObserver(self,selector: #selector(LogoutFinish),
+                                                            name: NSNotification.Name(rawValue: "logoutfinish"),
+                                                            object: nil)
+        
+       
+        return true
+    }
+    
+   
+    
+    @objc func LogoutFinish(notification: NSNotification){
+        DispatchQueue.main.async
+            {
+        UIApplication.shared.unregisterForRemoteNotifications()
+        }
+    }
+    
+    
+    @objc func setOpenViewController(notification: NSNotification) {
+        let storyBoard: UIStoryboard = UIStoryboard(name: "Main", bundle: Bundle.main)
+        let newViewController = storyBoard.instantiateViewController(withIdentifier: "ViewController") as! ViewController
+        newViewController.modalPresentationStyle = .fullScreen
+        self.window?.rootViewController?.present(newViewController, animated: false, completion: nil)
+    }
+
+    func registerForPushNotifications() {
+        
+        FirebaseApp.configure()
+        Messaging.messaging().delegate = self
+        
+        UNUserNotificationCenter.current().delegate = self
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) {
+            (granted, error) in
+            print("Permission granted: \(granted)")
+            // 1. Check if permission granted
+            guard granted else { return }
+            // 2. Attempt registration for remote notifications on the main thread
+            DispatchQueue.main.async {
+                UIApplication.shared.registerForRemoteNotifications()
+            }
+        }
+        
+        // Add observer for InstanceID token refresh callback.
+        NotificationCenter.default.addObserver(self, selector: #selector(self.tokenRefreshNotification),
+                                               name: NSNotification.Name.InstanceIDTokenRefresh, object: nil)
+        
+    }
+    
+    
+    func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+        let tokenParts = deviceToken.map { data -> String in
+            return String(format: "%02.2hhx", data)
+        }
+        let token = tokenParts.joined()
+        print(token)
+        setTokenFirebaseCloudMessaging()
+    }
+    
+    func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
+        // 1. Print out error if PNs registration not successful
+        print("Failed to register for remote notifications with error: \(error)")
+    }
+    
+    @objc func tokenRefreshNotification(notification: NSNotification) {
+        setTokenFirebaseCloudMessaging()
+    }
+    
+    func setTokenFirebaseCloudMessaging(){
+        InstanceID.instanceID().instanceID { (result, error) in
+            if let error = error {
+                print("Error fetching remote instance ID: \(error)")
+            } else if let result = result {
+                //Guardamos el token id
+                RemoteLib.shared.setToken(result.token)
+                
+                print("Remote instance ID token: \(result.token)")
+            }
+        }
+    }
+    
+   
+    func messaging(_ messaging: Messaging, didReceiveRegistrationToken fcmToken: String?) {
+        print("Firebase registration token: \(String(describing: fcmToken))")
+        
+        let dataDict:[String: String?] = ["token": fcmToken]
+        NotificationCenter.default.post(name: Notification.Name("FCMToken"), object: nil, userInfo: dataDict as [AnyHashable : Any])
+        RemoteLib.shared.setToken(fcmToken ?? "")
+    }
+    
+    
+    func application(_ application: UIApplication, didReceiveRemoteNotification userInfo: [AnyHashable : Any], fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void) {
+        notificationCall(userInfo: userInfo)
+      print("didReceiveRemoteNotification")
+    }
+
+   
+    func applicationDidBecomeActive(_ application: UIApplication) {
+         UIApplication.shared.applicationIconBadgeNumber = 0
+        let dataDict:[String: String?] = ["token": "PushTest"]
+               NotificationCenter.default.post(name: Notification.Name("PushTest"), object: nil, userInfo: dataDict as [AnyHashable : Any])
+    }
+  
+    func applicationDidEnterBackground(_ application: UIApplication) {
+        UIApplication.shared.applicationIconBadgeNumber = 0
+    }
+     
+    func applicationWillEnterForeground(_ application: UIApplication) {
+        print("applicationWillEnterForeground")
+       
+    }
+
+    //MARK: - NOtif
+    
+    func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification, withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
+
+       let userInfo = notification.request.content.userInfo as? NSDictionary
+   
+        if userInfo?["type"] as? String  == "inComingCall" {
+             notificationCall(userInfo: userInfo as! [AnyHashable : Any])
+            print("CALL")
+        } else {
+            
+             completionHandler([.alert, .badge, .sound])
+              print("NOTIF")
+        }
+        
+      
+     //   notificationTest(userInfotest: userInfo as! [AnyHashable : Any])
+    }
+    
+    
+    /*
+    func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification, withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
+        
+        let pushRefresh:[String: String?] = ["token": "UpdateCompletedQuestionnaire"]
+        NotificationCenter.default.post(name: Notification.Name("UpdateCompletedQuestionnaire"), object: nil, userInfo: pushRefresh as [AnyHashable : Any])
+        
+        let dataDict:[String: String?] = ["token": "PushwillPresent"]
+        NotificationCenter.default.post(name: Notification.Name("PushwillPresent"), object: nil, userInfo: dataDict as [AnyHashable : Any])
+        
+        let validate =  RemoteLib.shared.settingsManager.validateSession
+        if validate == true  {
+            completionHandler([.alert, .badge, .sound])
+        } else {
+            UIApplication.shared.unregisterForRemoteNotifications()
+        }
+        
+        
+    }
+*/
+    
+    
+    func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse, withCompletionHandler completionHandler: @escaping () -> Void) {
+        let userInfo = response.notification.request.content.userInfo
+        print("userNotificationCenter didReceive")
+        notificationCall(userInfo: userInfo)
+    }
+    /*
+    func notificationTest (userInfotest: [AnyHashable : Any]){
+        let type = userInfotest["type"] as? String
+         
+              if type == "inComingCall" {
+                
+                
+               notificationCall(userInfo: userInfotest)
+               
+              } else if type == "vitaldata" {
+                
+                  print("=======>NOTIFICAION PUSH ")
+              } else {
+                
+                print("=======> NOTIFICAION FORMULARIOS")
+        }
+        
+    }
+    */
+    func notificationCall (userInfo: [AnyHashable : Any]) {
+      
+        print(userInfo)
+        let INCOMING_CALL = "inComingCall"
+        let NOTIFICATION_VITALSIGN = "vitaldata"
+        let NOTIFICATION_POLLS = "forms"
+        
+        
+      
+        
+        UserDefaults.standard.set(NOTIFICATION_VITALSIGN, forKey: "vitaldata")
+        UserDefaults.standard.set(NOTIFICATION_POLLS, forKey: "forms")
+        
+        let roomUser = userInfo["room"] as? String
+        UserDefaults.standard.set(roomUser, forKey: "keyroom")
+        let keytype = userInfo["type"] as? String
+        UserDefaults.standard.set(keytype, forKey: "keytype")
+        
+       let attributetitle = userInfo["gcm.notification.attribute1"] as? String
+       UserDefaults.standard.set(attributetitle, forKey: "keytitle")
+        
+   
+        
+        if let type = userInfo["type"] as? String{
+            switch type {
+                
+            case NOTIFICATION_POLLS:
+                switch UIApplication.shared.applicationState {
+                case .active:
+                    DispatchQueue.main.async {
+                        self.nextViewPollsDetail(UIApplication.topViewController())
+                        UIApplication.shared.applicationIconBadgeNumber = 0
+                    }
+                    break
+                case .inactive:
+                    DispatchQueue.main.async {
+                        self.nextViewPollsDetail(UIApplication.topViewController())
+                         UIApplication.shared.applicationIconBadgeNumber = 0
+                    }
+                    break
+                case .background:
+                    DispatchQueue.main.async {
+                        self.nextViewPollsDetail(UIApplication.topViewController())
+                    }
+                    break
+                default:
+                    break
+                }
+                
+            case NOTIFICATION_VITALSIGN:
+                switch UIApplication.shared.applicationState {
+                case .active:
+                    DispatchQueue.main.async {
+                     self.nextViewVitalSign(UIApplication.topViewController())
+                      UIApplication.shared.applicationIconBadgeNumber = 0
+                        }
+                    break
+                case .inactive:
+                     DispatchQueue.main.async {
+                    self.nextViewVitalSign(UIApplication.topViewController())
+                     UIApplication.shared.applicationIconBadgeNumber = 0
+                     }
+                    break
+                case .background:
+                      DispatchQueue.main.async {
+                     self.nextViewVitalSign(UIApplication.topViewController())
+                      }
+                    break
+                default:
+                    break
+                }
+                
+                case INCOMING_CALL:
+                                        
+                    Timer.after(2.seconds) { [weak self] in
+                        
+                        let roomVar = userInfo["room"] as! String
+                        let callerVar = "7000009" //(userInfo["callerId"] as? String) ?? "7000009"
+                        let name = userInfo["professional"] as! String
+                       
+                        
+                        let videoCallSystem = VideoSystemRemote(rawValue: RemoteLib.shared.settingsManager.videoCallSystem) ?? .googleMeet
+
+                        switch videoCallSystem {
+                            
+                        case .i2cat:
+                            
+                            var typeVideo = ConferenceTypeRemote.individual
+                            
+                            if userInfo["typeVideo"] != nil {
+                                typeVideo = ConferenceTypeRemote(rawValue: userInfo["typeVideo"] as! String) ?? .individual
+                            }
+                            
+
+                            switch typeVideo {
+                                
+                            case .individual:
+                                self?.goCall(roomId: roomVar , callerId: callerVar, name: name)
+                                
+                            case .group, .instant:
+                                let urlCall = self?.generatedUrlVideo(roomVar: roomVar)
+                                self?.nextViewRoomConferenceWebSafari(UIApplication.topViewController(), url: URL(string: urlCall!))
+
+                            }
+                            
+                        case .openVidu:
+                            
+                            var typeVideo = ConferenceTypeRemote.individual
+                            
+                            if userInfo["typeVideo"] != nil {
+                                typeVideo = ConferenceTypeRemote(rawValue: userInfo["typeVideo"] as! String) ?? .individual
+                            }
+                            
+
+                            switch typeVideo {
+                                
+                            case .individual:
+                                self?.goCall(roomId: roomVar , callerId: callerVar, name: name)
+                                
+                            case .group, .instant:
+                                self?.nextViewRoomConferenceWebSafari(UIApplication.topViewController(), url: URL(string: roomVar))
+
+
+                            }
+                            
+                        case .googleMeet:
+                            if let url = URL(string: roomVar) {
+                                UIApplication.shared.open(url)
+                            }
+                        
+                        }
+                        
+                }
+                
+                
+                default:
+                    break
+            }
+        }
+    }
+    
+    func generatedUrlVideo(roomVar:String) -> String{
+        
+        let urlBase = RemoteLib.shared.settingsManager.urlVideoNM
+                        
+        let name = UserDefaults.standard.string(forKey: "userName")!.trimmingCharacters(in: .whitespaces)
+        let rol = UserDefaults.standard.string(forKey: "userProfile")
+        
+        var rolVideoCall = "moderator"
+        if rol == "professionals" {
+            rolVideoCall = "moderator"
+        } else if rol == "patients" {
+            rolVideoCall = "publisher"
+        }
+        
+        
+        let urlPart01 = urlBase+"/videoProxy?user="+name
+        let urlPart02 = "&role="+rolVideoCall+"&room=room"+roomVar
+        
+        return urlPart01 + urlPart02
+        
+    }
+
+    
+    private func nextViewRoomConferenceWebSafari(_ origin: UIViewController?, url: URL?) {
+
+        if #available(iOS 13.0, *) {
+            guard let origin = origin, let url = url else { return }
+
+            let config = SFSafariViewController.Configuration()
+            config.entersReaderIfAvailable = true
+
+            let safariVC = SFSafariViewController(url: url, configuration: config)
+
+            guard let navigationController = origin.navigationController as? NavigationBarPrivate else { return }
+            navigationController.setViewControllers([ConferenceNMCitaRouter.createModule(), safariVC], animated: true)
+        } else {
+            UIApplication.shared.open(url!)
+        }
+        
+       
+    }
+    
+    func goCall(roomId:String, callerId:String, name:String){
+        
+        DispatchQueue.main.async {
+            let callVC = CallContainerViewController()
+            callVC.isCaller = false
+            callVC.callerId = callerId
+            callVC.roomId = roomId
+            callVC.callerName = name
+            callVC.calleeName = "Paciente"
+            callVC.modalPresentationStyle = .fullScreen
+            self.window?.rootViewController?.present(callVC, animated: true, completion: nil)
+            self.window?.makeKeyAndVisible()
+            
+        }
+        
+        
+    }
+
+  func isUppercase(string: String) -> Bool {
+        var isUpper = false
+        
+        let set = CharacterSet.uppercaseLetters
+        for character in string {
+            if let scala = UnicodeScalar(String(character)) {
+                if set.contains(scala) {
+                    isUpper = true
+                    break
+                }
+            }
+        }
+        return isUpper
+    }
+    
+    private func nextViewPollsDetail(_ origin: UIViewController?) {
+        guard let origin = origin else { return }
+        let keyroom = UserDefaults.standard.object(forKey: "keyroom") as? String ?? ""
+        let titleUser = UserDefaults.standard.object(forKey: "keytitle") as? String ?? ""
+      /*
+        let titleUser = UserDefaults.standard.object(forKey: "keybody") as? String ?? ""
+        let title = titleUser.components(separatedBy: " ").dropFirst().joined(separator: " ")
+        let condition = title.split(separator: " ")
+        var value: Bool = false
+        var newTitle = ""
+
+        for  i in condition  {
+            if isUppercase(string: String(i)) {
+                value = true
+            }
+            if value == true {
+                newTitle = newTitle + " \(i) "
+            }
+        }
+ */
+        
+        let movementIDConvert = Int(keyroom) ?? 0
+        guard let navigationController = origin.navigationController as? NavigationBarPrivate else {return}
+        navigationController.pushViewController(PollRouter.createModule(actionBar: ActionBar(id: 0, name: titleUser , image: nil, movementID: movementIDConvert, withCheck: false), userNameNhc: "userNameNhc", readOnly: false, pollTab: PollTab(rawValue: 1)!), animated: true)
+    }
+    
+    private func nextViewVitalSign(_ origin: UIViewController?) {
+        guard let origin = origin else { return }
+        guard let navigationController = origin.navigationController as? NavigationBarPrivate else { return }
+        navigationController.setViewControllers([VitalSignRouter.createModule()], animated: true)
+    }
+    
+}
+
